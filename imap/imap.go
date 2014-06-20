@@ -5,7 +5,9 @@
 package imap
 
 import (
+	"encoding/base64"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -214,6 +216,35 @@ func (c *Client) Login(username, password string) (cmd *Command, err error) {
 			_, err = c.Capability()
 		}
 	}
+	return
+}
+
+// LoginXOAUTH2 performs SASL XOAUTH2 authentication. This command is disabled
+// when does not advertise AUTH=XOAUTH2 capability. More information is
+// available at // https://developers.google.com/gmail/xoauth2_protocol.
+//
+// This command is synchronous.
+func (c *Client) LoginXOAUTH2(username, accessToken string) (cmd *Command, err error) {
+	if !c.Caps["AUTH=XOAUTH2"] {
+		return nil, NotAvailableError("LOGINXOAUTH2")
+	}
+
+	authLine := fmt.Sprintf("user=%s\001auth=Bearer %s\001\001", username, accessToken)
+	authLineB64 := base64.StdEncoding.EncodeToString([]byte(authLine))
+	cmd, err = Wait(c.Send("AUTHENTICATE", "XOAUTH2", authLineB64))
+	if err != nil {
+		return
+	}
+
+	c.setState(Auth)
+	if cmd.result.Label != "CAPABILITY" {
+		// Gmail servers send an untagged CAPABILITY response after
+		// successful authentication. RFC 3501 states that the CAPABILITY
+		// response code in command completion should be used instead, so we
+		// ignore the untagged response.
+		_, err = c.Capability()
+	}
+
 	return
 }
 
